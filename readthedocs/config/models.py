@@ -28,10 +28,13 @@ class Base:
 
 class Build(Base):
 
-    __slots__ = ('image', 'apt_packages')
+    __slots__ = ('image', 'apt_packages', 'os', 'languages')
 
     def __init__(self, **kwargs):
         kwargs.setdefault('apt_packages', [])
+        kwargs.setdefault('image', None)
+        kwargs.setdefault('os', None)
+        kwargs.setdefault('languages', [])
         super().__init__(**kwargs)
 
 

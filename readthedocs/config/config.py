@@ -670,6 +670,13 @@ class BuildConfigV2(BuildConfigBase):
         'dirhtml': 'sphinx_htmldir',
         'singlehtml': 'sphinx_singlehtml',
     }
+    valid_os = ['ubuntu-20']
+    valid_languages = {
+        'python': ['3.9', '3.8'],
+        'nodejs': ['13', '14'],
+        'rust': ['1.54'],
+        'golang': ['1.17'],
+    }
 
     def validate(self):
         """
@@ -723,15 +730,47 @@ class BuildConfigV2(BuildConfigBase):
             conda['environment'] = validate_path(environment, self.base_path)
         return conda
 
-    def validate_build(self):
+    def validate_new_build_config(self):
+        build = {}
+        with self.catch_validation_error('build.os'):
+            build_os = self.pop_config('build.os', raise_ex=True)
+            build['os'] = validate_choice(build_os, self.valid_os)
+
+        languages = {}
+        with self.catch_validation_error('build.languages'):
+            languages = self.pop_config('build.languages')
+            validate_dict(languages)
+            for lang in languages.keys():
+                validate_choice(lang, self.valid_languages.keys())
+
+        if not languages:
+            self.error(
+                key='build.languages',
+                message=(
+                    'At least one language of [{}] must be provided.'.format(
+                        ' ,'.join(self.valid_languages.keys())
+                    )
+                ),
+                code=CONFIG_REQUIRED,
+            )
+
+        build['languages'] = {}
+        for lang, version in languages.items():
+            with self.catch_validation_error(f'build.language.{lang}'):
+                build['languages'] = validate_choice(
+                    version,
+                    self.valid_languages[lang],
+                )
+
+        build['apt_packages'] = self.validate_apt_packages()
+        return build
+
+    def validate_old_build_config(self):
         """
         Validates the build object.
 
         It prioritizes the value from the default image if exists.
         """
-        raw_build = self._raw_config.get('build', {})
-        with self.catch_validation_error('build'):
-            validate_dict(raw_build)
         build = {}
         with self.catch_validation_error('build.image'):
             image = self.pop_config('build.image', self.default_build_image)
@@ -748,6 +787,11 @@ class BuildConfigV2(BuildConfigBase):
             if config_image:
                 build['image'] = config_image
 
+        build['apt_packages'] = self.validate_apt_packages()
+        return build
+
+    def validate_apt_packages(self):
+        apt_packages = []
         with self.catch_validation_error('build.apt_packages'):
             raw_packages = self._raw_config.get('build', {}).get('apt_packages', [])
             validate_list(raw_packages)
@@ -756,14 +800,28 @@ class BuildConfigV2(BuildConfigBase):
                 list_to_dict(raw_packages)
             )
 
-            build['apt_packages'] = [
+            apt_packages = [
                 self.validate_apt_package(index)
                 for index in range(len(raw_packages))
             ]
             if not raw_packages:
                 self.pop_config('build.apt_packages')
 
-        return build
+        return apt_packages
+
+
+    def validate_build(self):
+        """
+        Validates the build object.
+
+        It prioritizes the value from the default image if exists.
+        """
+        raw_build = self._raw_config.get('build', {})
+        with self.catch_validation_error('build'):
+            validate_dict(raw_build)
+        if 'os' in raw_build:
+            return self.validate_new_build_config()
+        return self.validate_old_build_config()
 
     def validate_apt_package(self, index):
         """
